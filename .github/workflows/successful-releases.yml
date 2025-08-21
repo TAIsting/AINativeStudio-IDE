@@ -1,0 +1,176 @@
+name: Release Successful Builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_tag:
+        description: 'Version tag for the release (e.g., v1.0.0)'
+        required: true
+        type: string
+      release_name:
+        description: 'Release name'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  release-artifacts:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check if all builds succeeded
+        id: check-builds
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const sha = context.payload.workflow_run.head_sha;
+            
+            // Get all workflow runs for this commit
+            const workflows = ['Build Linux', 'Build macOS', 'Build Windows'];
+            let allSuccessful = true;
+            
+            for (const workflowName of workflows) {
+              const runs = await github.rest.actions.listWorkflowRuns({
+                owner,
+                repo,
+                workflow_id: workflowName + '.yml',
+                head_sha: sha,
+                status: 'completed'
+              });
+              
+              if (runs.data.workflow_runs.length === 0 || 
+                  runs.data.workflow_runs[0].conclusion !== 'success') {
+                allSuccessful = false;
+                break;
+              }
+            }
+            
+            return allSuccessful;
+
+      - name: Generate version
+        if: steps.check-builds.outputs.result == 'true'
+        id: version
+        run: |
+          VERSION="v$(date +'%Y.%m.%d')-$(git rev-parse --short HEAD)"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Generated version: $VERSION"
+
+      - name: Download Linux artifact
+        if: steps.check-builds.outputs.result == 'true'
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-linux.yml
+          workflow_conclusion: success
+          commit: ${{ github.event.workflow_run.head_sha }}
+          name: ainative-studio-linux-x64
+          path: ./artifacts/linux
+
+      - name: Download macOS Intel artifact
+        if: steps.check-builds.outputs.result == 'true'
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-macos.yml
+          workflow_conclusion: success
+          commit: ${{ github.event.workflow_run.head_sha }}
+          name: ainative-studio-darwin-x64
+          path: ./artifacts/macos-intel
+
+      - name: Download macOS ARM artifact
+        if: steps.check-builds.outputs.result == 'true'
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-macos.yml
+          workflow_conclusion: success
+          commit: ${{ github.event.workflow_run.head_sha }}
+          name: ainative-studio-darwin-arm64
+          path: ./artifacts/macos-arm
+
+      - name: Download Windows artifact
+        if: steps.check-builds.outputs.result == 'true'
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          workflow: build-windows.yml
+          workflow_conclusion: success
+          commit: ${{ github.event.workflow_run.head_sha }}
+          name: ainative-studio-win32-x64
+          path: ./artifacts/windows
+
+      - name: Create Release
+        if: steps.check-builds.outputs.result == 'true'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.version }}
+          name: AINative Studio ${{ steps.version.outputs.version }}
+          body: |
+            ## Automated Release
+            
+            This release was automatically created from successful builds on commit ${{ github.event.workflow_run.head_sha }}.
+            
+            ### Changes
+            - Commit: ${{ github.event.workflow_run.head_commit.message }}
+            - Author: ${{ github.event.workflow_run.head_commit.author.name }}
+            - Branch: ${{ github.event.workflow_run.head_branch }}
+            
+            ### Downloads
+            - **Linux x64**: `ainative-studio-linux-x64.tar.gz`
+            - **macOS Intel**: `ainative-studio-darwin-x64.zip`
+            - **macOS Apple Silicon**: `ainative-studio-darwin-arm64.zip`
+            - **Windows x64**: `ainative-studio-win32-x64.zip`
+          draft: false
+          prerelease: false
+          files: |
+            ./artifacts/linux/*.tar.gz
+            ./artifacts/macos-intel/*.zip
+            ./artifacts/macos-arm/*.zip
+            ./artifacts/windows/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup old releases
+        if: steps.check-builds.outputs.result == 'true'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            
+            // Keep only the latest 5 automated releases
+            const releases = await github.rest.repos.listReleases({
+              owner,
+              repo,
+              per_page: 100
+            });
+            
+            const autoReleases = releases.data.filter(r => 
+              r.tag_name.includes('-') && !r.draft
+            );
+            
+            if (autoReleases.length > 5) {
+              for (let i = 5; i < autoReleases.length; i++) {
+                await github.rest.repos.deleteRelease({
+                  owner,
+                  repo,
+                  release_id: autoReleases[i].id
+                });
+                
+                // Also delete the tag
+                try {
+                  await github.rest.git.deleteRef({
+                    owner,
+                    repo,
+                    ref: `tags/${autoReleases[i].tag_name}`
+                  });
+                } catch (e) {
+                  console.log(`Could not delete tag ${autoReleases[i].tag_name}`);
+                }
+              }
+            }

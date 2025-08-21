@@ -96,14 +96,13 @@ jobs:
         with:
           script: |
             const runs = JSON.parse('${{ steps.find-builds.outputs.runs }}');
-            const { exec } = require('@actions/exec');
             
             for (const run of runs) {
               console.log(`Downloading ${run.artifact} from run #${run.runId}...`);
               
               try {
                 // Use GitHub CLI to download artifacts
-                await exec('gh', [
+                await exec.exec('gh', [
                   'run', 'download', run.runId.toString(),
                   '-n', run.artifact,
                   '-D', `./artifacts/${run.artifact}`
