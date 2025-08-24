@@ -236,7 +236,7 @@ jobs:
           cat > AppDir/AppRun << 'EOF'
           #!/bin/bash
           HERE="$(dirname "$(readlink -f "${0}")")"
-          exec "${HERE}/usr/bin/code" "$@"
+          exec "${HERE}/usr/bin/void" "$@"
           EOF
           chmod +x AppDir/AppRun
           
@@ -277,10 +277,15 @@ jobs:
             cp -r ../VSCode-linux-x64/* deb-package/opt/ainative-studio/
           fi
           
-          # Create symlink for command line access
+          # Create wrapper scripts for command line access
           echo '#!/bin/bash' > deb-package/usr/bin/ainative-studio
-          echo 'exec /opt/ainative-studio/code "$@"' >> deb-package/usr/bin/ainative-studio
+          echo 'exec /opt/ainative-studio/void "$@"' >> deb-package/usr/bin/ainative-studio
           chmod +x deb-package/usr/bin/ainative-studio
+          
+          # Create alias for ainativestudio command
+          echo '#!/bin/bash' > deb-package/usr/bin/ainativestudio
+          echo 'exec /opt/ainative-studio/void "$@"' >> deb-package/usr/bin/ainativestudio
+          chmod +x deb-package/usr/bin/ainativestudio
           
           # Copy desktop file and icon
           cp ./ai_native_studio_icons/ai_native_studio_256x256.png deb-package/usr/share/icons/hicolor/256x256/apps/ainative-studio.png
@@ -362,12 +367,18 @@ jobs:
           
           cp -r * %{buildroot}/opt/ainative-studio/
           
-          # Create wrapper script
+          # Create wrapper scripts
           cat > %{buildroot}/usr/bin/ainative-studio << 'SCRIPT'
           #!/bin/bash
-          exec /opt/ainative-studio/code "$@"
+          exec /opt/ainative-studio/void "$@"
           SCRIPT
           chmod +x %{buildroot}/usr/bin/ainative-studio
+          
+          cat > %{buildroot}/usr/bin/ainativestudio << 'SCRIPT'
+          #!/bin/bash
+          exec /opt/ainative-studio/void "$@"
+          SCRIPT
+          chmod +x %{buildroot}/usr/bin/ainativestudio
           
           # Install icon and desktop file
           cp %{SOURCE1} %{buildroot}/usr/share/icons/hicolor/256x256/apps/ainative-studio.png
@@ -385,6 +396,7 @@ jobs:
           %files
           /opt/ainative-studio/*
           /usr/bin/ainative-studio
+          /usr/bin/ainativestudio
           /usr/share/applications/ainative-studio.desktop
           /usr/share/icons/hicolor/256x256/apps/ainative-studio.png
           
@@ -404,6 +416,7 @@ jobs:
           name: ainative-studio-linux-x64-tar
           path: ainative-studio/ainative-studio-linux-x64.tar.gz
           retention-days: 7
+          overwrite: true
 
       - name: Upload AppImage artifact
         uses: actions/upload-artifact@v4
@@ -411,6 +424,7 @@ jobs:
           name: ainative-studio-linux-x64-appimage
           path: ainative-studio/ainative-studio-linux-x64.AppImage
           retention-days: 7
+          overwrite: true
 
       - name: Upload DEB package
         uses: actions/upload-artifact@v4
@@ -418,6 +432,7 @@ jobs:
           name: ainative-studio-linux-x64-deb
           path: ainative-studio/ainative-studio-linux-x64.deb
           retention-days: 7
+          overwrite: true
 
       - name: Upload RPM package
         uses: actions/upload-artifact@v4
@@ -425,3 +440,4 @@ jobs:
           name: ainative-studio-linux-x64-rpm
           path: ainative-studio/ainative-studio-linux-x64.rpm
           retention-days: 7
+          overwrite: true
